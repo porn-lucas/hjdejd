@@ -315,4 +315,5 @@ bot.on('polling_error', (error) => {
 process.on('unhandledRejection', (reason) => {
   console.error('Unhandled Rejection:', reason)
 })
+
 console.log('🤖 Bot aktif')
