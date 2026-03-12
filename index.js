@@ -1,318 +1,157 @@
-require('dotenv').config();
+const { TelegramClient } = require("telegram");
+const { StringSession } = require("telegram/sessions");
 
-const BOT_TOKEN = process.env.BOT_TOKEN;
-const ADMIN_ID = process.env.ADMIN_ID;
-const CHANNEL_ID = process.env.CHANNEL_ID;
-
-if (!BOT_TOKEN) {
-  console.error("❌ BOT_TOKEN tidak ditemukan di .env");
-  process.exit(1); // stop bot kalau token tidak ada
-}
-
-const TelegramBot = require('node-telegram-bot-api');
-const bot = new TelegramBot(BOT_TOKEN, { polling: true });
-
-
-// ===== DATA STORAGE SEMENTARA =====
-const userState = new Map() // Menyimpan state per user
-const tokenStore = new Map() // Menyimpan token PAP: token => { ownerId, mediaMsgId, caption }
-
-/* ===== UTILITIES ===== */
-
-// Generate token 4 digit untuk PAP
-function genToken() {
-  return Math.floor(1000 + Math.random() * 9000).toString()
-}
-
-// Ambil username Telegram, fallback jika tidak ada
-function getUsername(user) {
-  return user.username ? '@' + user.username : '(no_username)'
-}
-
-// Reset state user
-function reset(chatId) {
-  userState.delete(chatId)
-}
-
-// Keyboard "Kembali"
-function backKeyboard() {
-  return {
-    reply_markup: {
-      keyboard: [['⬅️ Kembali']],
-      resize_keyboard: true
-    }
-  }
-}
-
-// Menu utama
-function mainMenu(chatId) {
-  reset(chatId)
-  bot.sendMessage(chatId, '📋 Menu Utama', {
-    reply_markup: {
-      keyboard: [
-        ['⭐ Rate PAP', '📤 Kirim PAP'],
-        ['💌 Menfes', '❓ Help'],
-        ['🔞 VIP Video']
-      ],
-      resize_keyboard: true
-    }
-  })
-}
-
-/* ===== COMMAND /start ===== */
-bot.onText(/\/start/, (msg) => mainMenu(msg.chat.id))
-
-/* ===== MESSAGE HANDLER ===== */
-bot.on('message', async (msg) => {
-  const chatId = msg.chat.id
-  const text = msg.text
-  const state = userState.get(chatId)
-
-  // =====================
-  // MENU UTAMA
-  // =====================
-  if (text === '⭐ Rate PAP') {
-    userState.set(chatId, { step: 'rate_token' })
-    return bot.sendMessage(chatId, '🔑 Kirim token PAP', backKeyboard())
-  }
-
-  if (text === '📤 Kirim PAP') {
-    userState.set(chatId, { step: 'pap_mode' })
-    return bot.sendMessage(chatId, 'Pilih mode PAP', {
-      reply_markup: {
-        keyboard: [
-          ['🕶 Anonim', '🙍 Non Anonim'],
-          ['⬅️ Kembali']
-        ],
-        resize_keyboard: true
-      }
-    })
-  }
-
-  if (text === '💌 Menfes') {
-    userState.set(chatId, { step: 'menfes_mode' })
-    return bot.sendMessage(chatId, 'Pilih mode Menfes', {
-      reply_markup: {
-        keyboard: [
-          ['🕶 Anonim', '🙍 Non Anonim'],
-          ['⬅️ Kembali']
-        ],
-        resize_keyboard: true
-      }
-    })
-  }
-
-  if (text === '❓ Help') {
-    return bot.sendMessage(chatId,
-`ℹ️ *Help Bot PAP & Menfes*
-
-*⭐ Rate PAP*
-- Kirim token PAP 4 digit yang diterima.
-- Pilih emoji untuk rating.
-- Bisa menambahkan komentar opsional.
-
-*📤 Kirim PAP*
-- Pilih mode: Anonim / Non Anonim.
-- Kirim media (foto/video/document) + teks opsional.
-- Bot akan memberikan token 4 digit untuk dibagikan.
-
-*💌 Menfes*
-- Pilih mode: Anonim / Non Anonim.
-- Tulis pesan menfes.
-- Pesan akan dikirim ke channel.
-
-*🔞 VIP Video*
-- Link menuju konten VIP (eksternal).
-
-*⬅️ Kembali*
-- Kembali ke menu utama.
-`,
-{
-  parse_mode: 'Markdown',
-  reply_markup: {
-    keyboard: [['⬅️ Kembali']],
-    resize_keyboard: true
-  }
-})
-  }
-
-  if (text === '🔞 VIP Video') {
-    return bot.sendMessage(chatId, 'BELI VIDEO MURAH + UPDATE TIAP HARI DISINI @vvip_3_bot')
-  }
-
-  if (text === '⬅️ Kembali') {
-    return mainMenu(chatId)
-  }
-
-  // Jika tidak ada state, hentikan
-  if (!state) return
-
-  // =====================
-  // RATE PAP
-  // =====================
-  if (state.step === 'rate_token') {
-    const data = tokenStore.get(text)
-    if (!data) return bot.sendMessage(chatId, '❌ Token tidak valid')
-
-    userState.set(chatId, {
-      step: 'rate_emoji',
-      targetUser: data.ownerId
-    })
-
-    // Salin media ke user yang ingin memberi rating
-   await bot.copyMessage(
-  chatId,           // penerima (yang ngerate)
-  data.ownerId,     // pemilik PAP (asal media)
-  data.mediaMsgId,
+// ---------- KONFIGURASI AKUN ----------
+const accounts = [
   {
-    caption: data.caption,
-    protect_content: true
-  }
-)
+    name: "AKUN +6285771582422",
+    apiId: 29077885,
+    apiHash: "1ac23eeec768f729c4e8fe81c9a29d80",
+    session: new StringSession(
+      "1BQANOTEuMTA4LjU2LjIwMAG7S25DKmlhrE+57O4lnty5nCYbex4NbGbyalQVSRyBoAz/ntc6I3zXI04NrFyfX3471XZxWjIPVx6jnJFS47L+z6AAG+IMDvXApKtOP9Xcd0Oy4Dd5ExkmOD5/6mmdRzbXPyjKItTElLuoOYuQoM3sYqedJ5SoSgMrctFsjYjh5d/uECrpKtxO/zPDxv5JstUpZ8FuEOQsLpevgTJ7fZkicFaSqBgdRxuLE8GDuqtNzGhgel92Mnn7fcOoHb0LT1KWzbGrTzNUwHWgCv6MK4hXao5uEmsaBIHNcI4ABDTYul8l9Sd70wfiZ00a91QKhX1NK48Re7Y+2pFXO1rmj1G37w=="
+    ),
+    groupUsernames: ["@lpm_seme_uke", "@LPM_DDK_BBG_MMK"],
+    targetMinutes: [0, 2, 4, 6, 8],
+  },
+  {
+    name: "AKUN +6285749156889",
+    apiId: 29077885,
+    apiHash: "8abae3cbda9be207308b22a01668e4e0",
+    session: new StringSession(
+      "1BQANOTEuMTA4LjU2LjEzOQG7W2u+j+HrJpRzuHbMOfaBz3csguPn4wjghgyptQzzJDDpLVqswY4ox4Qz/QfV6aKiKkVT5vWxuXvW91hy8mF6d3Z1RhdYircfFtLIINkMET4lDBgDycjG0aNxcmPNa4lCvrCYZ05Dks6eFEgcV0AwHK91A7zMjH+tvHJ2ZvSsLfweIOWfhJDEdG5TTyjIIWXAoE9B5yDK+bb8DHkmY8P1zi2zO8+IqSnjc/lFoit3S+vDTTAMml9Qax+b0eQJvvZhHd7J6V6cbvvM7zUNsIIDP1p7orbFR7pNbi0QpcEoJGNOZGb0kHGjTTn+mrKmB+OrrPmUpDSpv8IfqLpTtuFq8w=="
+    ),
+    groupUsernames: ["@lpm_seme_uke", "@LPM_DDK_BBG_MMK"],
+    targetMinutes: [10, 12, 14, 18],
+  },
+  {
+    name: "AKUN +6283191188176",
+    apiId: 20310672,
+    apiHash: "d044b5a578a25f7dc1b4a2e68b967ad0",
+    session: new StringSession(
+      "1BQANOTEuMTA4LjU2LjIwMAG7wCvdgsUMjDjVsPGUDKRkgEgh1+L3Bkj0LUqHUkYWRpLT8BvwrVPNELSY2tFOl4GSKdaUoACSzvkKeBXM9zCuVgPRPdGRP6kHnbk1qgyH2RmJq8EaA4caiDYYcHJlBr78c2j6cT44FphRHLGbmZgpZ4Sg/IySUt0Pqp+oACkrPIvPvhjHIbc5Qp7r/fZoai+u95dhXn4vgWlXZVRYZ7nEFnL2HCiQ/it0o3/tMgI64QpSWltIWSxlVq2Ehd5O4glUB5bLT+U5Rp4EJ5UrpBakXcOoRIEH8sGvrIRDwYJKkXO64P6z97HliuSgckL3FgqCN5SLclHvZwPftmFdDKL5aA=="
+    ),
+    groupUsernames: ["@lpm_seme_uke", "@LPM_DDK_BBG_MMK"],
+    targetMinutes: [20, 23, 25, 28],
+  },
+  {
+    name: "AKUN +6283175551960",
+    apiId: 25494748,
+    apiHash: "0561b7417fd82f85b5fb9811244a27ba",
+    session: new StringSession(
+      "1BQANOTEuMTA4LjU2LjIwMAG7hz+pdnZo1xIS9The2PjFG6OlH6z/t25TwZN/7OPLfR0CgnK4CoLIw2s4xWM5EbBbTL/+t2IJgN8AI240l0Ecy6+xSAJuyyVpt16XpU9YaZb99/MHeSuffxcSXNFeAGOcU1sCyA0LAVcONrswPhQP5nJQ3b1jWv+4xVcXMMZL52F5UQMNK/1iRM/7ubJRItEUbjAICMLoUe8FtSE51Sn5LeDgZ7Hz5sxrZR361lcQKuNYYTXYBYUW8dWTGDi1RjsSqjroViULTgae7Ql8AMackZRpFqc2b1w78NanZ/142zD0Asci0ZIfh+fnGvsxi8+cOo6a84MGDQKWQnOoYLTb0A=="
+    ),
+    groupUsernames: ["@lpm_seme_uke", "@LPM_DDK_BBG_MMK"],
+    targetMinutes: [30, 33, 35, 38],
+  },
+  {
+    name: "AKUN +6288276648966",
+    apiId: 29587265,
+    apiHash: "4111592828f7580d6b87b6d7199e59f5",
+    session: new StringSession(
+      "1BQANOTEuMTA4LjU2LjIwMAG7ojp012XEiJMHBTr3tU/peN6recnG7mJpoTA5icFSZ78Pt8WOdOHFzq2PyR5W40bsXo80XkTuYALvAi9xcGNBLc7vfOaX5lN0fe+XfGZ4CqxrHBltF13r4qlTISiHnPtPdY0HtfGA7SenjKSReAzuXVW5X417EvpREhClDtdUGB/eWzFYiOLkJD03gHvfDcp58sySbXhIiGQP4yrdUh/i3euli2iJaghmtpVUP6ZIj86xVOq7OmemgnKQtWcVc1RqNemaSiHP2egv2JmsazGIFA/mRXv4HMQQwWBAvBPPuSVjnLINdauqI7UoewRJQo7TtRRBv8+I/WEpgu4+ZK+ZZQ=="
+    ),
+    groupUsernames: ["@lpm_seme_uke", "@LPM_DDK_BBG_MMK"],
+    targetMinutes: [40, 43, 45, 48],
+  },
+  {
+    name: "AKUN +6283175550412",
+    apiId: `22467930`,
+    apiHash: "aa8001b5a53dd34b332eacf1f5e82357",
+    session: new StringSession(
+      "1BQANOTEuMTA4LjU2LjIwMAG7HKS5OlKHIh5yo3lxo3EPmBxJbHnSRDa5YwaOhAvYw9g/1zH5r/AuVUwRn3rLrVZjRbMqQoAhYlqmyDnwNTZv5Lu1vzI3naosxzoVsWiHWUyxWt/uPnZOjhPoOcdu4AYZJGq2tek0s/0LfER4ruiRJ3a+v4Rpv3OJRh+AXk8NtCnmYe6Tew7NkliLC5k0+GtzX1P1PscNz/8jOZyw+RUyeardFKtHehQEn4X8Di0bzopUwxE+kpGHia7aB1+Z9yONv5bAAf8ABItKH5IdJmClVL8xYzLUVTbPTMJwmyA6/OjhihMmcHg6sUjWzVUHn7onjojuS0xTcxyCrgVb/iwu3Q=="
+    ),
+    groupUsernames: ["@lpm_seme_uke", "@LPM_DDK_BBG_MMK"],
+    targetMinutes: [50, 53, 55, 58],
+  },
+  // Tambahkan akun lain di sini
+];
 
+// ---------- PESAN ----------
+const messageToSend = `
+ch b0k*p bxb https://t.me/+GDXb7qYaLytkNDA1
 
-    return bot.sendMessage(chatId, 'Pilih rating:', {
-      reply_markup: {
-        keyboard: [
-          ['😍', '🔥', '👍', '😐'],
-          ['👎', '🤢', '💀', '🤡'],
-          ['⬅️ Kembali']
-        ],
-        resize_keyboard: true
-      }
-    })
-  }
+ch b0k*p bxb https://t.me/+GDXb7qYaLytkNDA1
 
-  if (state.step === 'rate_emoji') {
-    // Kirim rating ke pemilik PAP
-    const raterUsername = getUsername(msg.from)
-    await bot.sendMessage(state.targetUser, `⭐ Rating dari ${raterUsername}: ${text}`)
+ch b0k*p bxb https://t.me/+GDXb7qYaLytkNDA1
 
+ch b0k*p bxb https://t.me/+GDXb7qYaLytkNDA1
 
-    // Minta komentar opsional
-    userState.set(chatId, {
-      step: 'rate_comment',
-      targetUser: state.targetUser
-    })
+ch b0k*p bxb https://t.me/+GDXb7qYaLytkNDA1
 
-    return bot.sendMessage(chatId, 'Kirim komentar?', {
-      reply_markup: {
-        keyboard: [
-          ['✍️ Kirim Komentar', '🚫 Tidak'],
-          ['⬅️ Kembali']
-        ],
-        resize_keyboard: true
-      }
-    })
-  }
+ch b0k*p bxb https://t.me/+GDXb7qYaLytkNDA1
 
-  if (state.step === 'rate_comment') {
-    if (text === '🚫 Tidak') {
-      return mainMenu(chatId)
+#seme #uke #area
+`.trim();
+
+// ---------- SAFE GET ENTITY ----------
+async function safeGetEntity(client, username, retries = 3) {
+  for (let i = 0; i < retries; i++) {
+    try {
+      return await client.getEntity(username);
+    } catch (err) {
+      await new Promise((r) => setTimeout(r, 2000));
     }
-    if (text === '✍️ Kirim Komentar') {
-      userState.set(chatId, {
-        step: 'rate_comment_text',
-        targetUser: state.targetUser
-      })
-      return bot.sendMessage(chatId, '✍️ Tulis komentar')
+  }
+  throw new Error(`Gagal getEntity setelah ${retries} percobaan: ${username}`);
+}
+
+// ---------- FUNGSI KIRIM PESAN ----------
+async function sendMessage(account) {
+  const client = new TelegramClient(
+    account.session,
+    account.apiId,
+    account.apiHash,
+    {
+      connectionRetries: 5,
+      autoReconnect: true,
+      useWSS: false,
+      timeout: 90000, // 30 detik
     }
+  );
+
+  try {
+    await client.connect();
+
+    for (const group of account.groupUsernames) {
+      try {
+        const entity = await safeGetEntity(client, group);
+        await client.sendMessage(entity, { message: messageToSend });
+        // delay acak 1-3 detik
+        await new Promise((r) =>
+          setTimeout(r, 1000 + Math.floor(Math.random() * 2000))
+        );
+      } catch (err) {
+        // skip jika gagal kirim ke grup tertentu
+      }
+    }
+  } catch (err) {
+    // skip jika koneksi gagal
+  } finally {
+    try {
+      await client.disconnect();
+    } catch (err) {}
   }
+}
 
-  if (state.step === 'rate_comment_text') {
-   const commenterUsername = getUsername(msg.from)
-await bot.sendMessage(state.targetUser, `💬 Komentar dari ${commenterUsername}:\n${text}`)
-    return mainMenu(chatId)
-  }
+// ---------- SCHEDULER MULTI-AKUN ----------
+function scheduleAccount(account) {
+  let isSending = false;
 
-  // =====================
-  // KIRIM PAP
-  // =====================
-  if (state.step === 'pap_mode' && (text === '🕶 Anonim' || text === '🙍 Non Anonim')) {
-    userState.set(chatId, {
-      step: 'pap_media',
-      anon: text === '🕶 Anonim'
-    })
-    return bot.sendMessage(chatId, '📎 Kirim PAP + teks (opsional)', backKeyboard())
-  }
+  setInterval(async () => {
+    const now = new Date();
+    if (account.targetMinutes.includes(now.getMinutes())) {
+      if (isSending) return;
+      isSending = true;
+      try {
+        await sendMessage(account);
+      } finally {
+        isSending = false;
+      }
+    }
+  }, 60 * 1000);
+}
 
-  if (state.step === 'pap_media' && (msg.photo || msg.video || msg.document)) {
-    const token = genToken()
-    const username = getUsername(msg.from)
-    const caption = msg.caption || '—'
-
-    tokenStore.set(token, {
-      ownerId: chatId,
-      mediaMsgId: msg.message_id,
-      caption
-    })
-
-    // Kirim ke channel
-    await bot.sendMessage(CHANNEL_ID,
-`📥 PAP BARU
-🔑 Token: <code>${token}</code>
-👤 ${state.anon ? 'Anonim' : username}
-➡️ Kirim token ke bot : @rate_seme_uke_bot`,
-{
-  parse_mode: 'HTML'
-})
-
-    // Notifikasi admin
-    await bot.sendMessage(ADMIN_ID,
-`📥 PAP
-User: ${username}
-Token: ${token}`
-    )
-
-    await bot.sendMessage(chatId, `✅ PAP terkirim\nToken: ${token}`)
-    return mainMenu(chatId)
-  }
-
-  // =====================
-  // MENFES
-  // =====================
-  if (state.step === 'menfes_mode' && (text === '🕶 Anonim' || text === '🙍 Non Anonim')) {
-    userState.set(chatId, {
-      step: 'menfes_text',
-      anon: text === '🕶 Anonim'
-    })
-    return bot.sendMessage(chatId, '✍️ Tulis menfes', backKeyboard())
-  }
-
-  if (state.step === 'menfes_text') {
-    const username = getUsername(msg.from)
-
-   // Kirim Menfes ke channel dalam bentuk "blok"
-await bot.sendMessage(
-  CHANNEL_ID,
-  `💌 MENFES
-Mode: ${state.anon ? 'Anonim' : 'Non Anonim'}
-${state.anon ? '' : 'User: ' + username}
-Pesan:
-${text}`
-)
-
-
-    // Notifikasi admin
-    await bot.sendMessage(ADMIN_ID,
-`📩 MENFES
-User: ${username}
-Isi:
-${text}`
-    )
-
-    // Notifikasi ke user
-    await bot.sendMessage(chatId, '✅ Menfes berhasil dikirim!')
-
-    return mainMenu(chatId)
-  }
-})
-
-bot.on('polling_error', (error) => {
-  console.error('Polling error:', error.message)
-})
-
-process.on('unhandledRejection', (reason) => {
-  console.error('Unhandled Rejection:', reason)
-})
-console.log('🤖 Bot aktif')
+// ---------- START SEMUA AKUN ----------
+accounts.forEach((account) => {
+  scheduleAccount(account);
+});
